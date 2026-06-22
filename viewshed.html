@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hong Kong 3D Viewshed Analyzer</title>
+  
+  <link rel="stylesheet" href="https://js.arcgis.com/4.33/esri/themes/dark/main.css">
+  
+  <style>
+    /* Reset and Base Layout */
+    html, body {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #0d1117;
+      color: #f0f6fc;
+      overflow: hidden;
+    }
+
+    #viewDiv {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    /* Main Floating Dashboard (Glassmorphism) */
+    .glass-container {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      z-index: 10;
+      width: 330px;
+      padding: 28px;
+      background: rgba(22, 27, 34, 0.55);
+      backdrop-filter: blur(20px) saturate(190%);
+      -webkit-backdrop-filter: blur(20px) saturate(190%);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    }
+
+    .glass-container h1 {
+      margin: 0 0 6px 0;
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #4fa3ff 0%, #9d76ff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .glass-container p {
+      margin: 0 0 22px 0;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: #8b949e;
+    }
+
+    /* Status Indicator Badge */
+    .status-wrapper {
+      display: flex;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 100px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #c9d1d9;
+    }
+
+    .status-badge .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #8b949e;
+    }
+
+    .status-badge.active {
+      color: #58a6ff;
+      background: rgba(56, 139, 253, 0.15);
+      border-color: rgba(56, 139, 253, 0.35);
+    }
+
+    .status-badge.active .dot {
+      background-color: #58a6ff;
+      box-shadow: 0 0 10px rgba(88, 166, 255, 0.8);
+      animation: pulsePulse 2s infinite;
+    }
+
+    @keyframes pulsePulse {
+      0% { transform: scale(0.95); opacity: 0.6; }
+      50% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.6; }
+    }
+
+    /* Action Buttons */
+    .action-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .btn {
+      position: relative;
+      padding: 14px 20px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, rgba(31, 111, 235, 0.8) 0%, rgba(137, 87, 229, 0.8) 100%);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 15px rgba(31, 111, 235, 0.2);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, rgba(31, 111, 235, 0.95) 0%, rgba(137, 87, 229, 0.95) 100%);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.04);
+      color: #c9d1d9;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.18);
+      color: #ffffff;
+    }
+
+    /* PREVIEW CONTAINER - Live Observer Perspective */
+    .preview-container {
+      position: absolute;
+      bottom: 32px;
+      left: 32px;
+      z-index: 10;
+      width: 600px;
+      height: 400px;
+      background: rgba(22, 27, 34, 0.65);
+      backdrop-filter: blur(24px) saturate(190%);
+      -webkit-backdrop-filter: blur(24px) saturate(190%);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 18px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+      display: none; /* Hidden until a viewshed is placed */
+      flex-direction: column;
+    }
+
+    #previewDiv {
+      width: 100%;
+      height: 100%;
+      pointer-events: none; /* Make it a pure visual monitor */
+    }
+
+    .preview-label {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.55);
+      padding: 6px 14px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #ffffff;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      z-index: 2;
+    }
+
+    .esri-ui-corner .esri-component {
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35) !important;
+      border-radius: 14px !important;
+      background: rgba(22, 27, 34, 0.65) !important;
+      backdrop-filter: blur(12px) !important;
+      border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="viewDiv"></div>
+
+  <div id="previewContainer" class="preview-container">
+    <div class="preview-label">Observer Perspective</div>
+    <div id="previewDiv"></div>
+  </div>
+
+  <div class="glass-container">
+    <h1>HK Viewshed 3D Analysis</h1>
+    <p>Analyze line-of-sight visibility interactively. The viewport below will mimic the observer's live perspective.</p>
+    
+    <div class="status-wrapper">
+      <div id="statusBadge" class="status-badge">
+        <span class="dot"></span>
+        <span id="statusText">Initializing Data...</span>
+      </div>
+    </div>
+
+    <div class="action-group">
+      <button id="placeBtn" class="btn btn-primary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Place Viewshed Cone
+      </button>
+      <button id="clearBtn" class="btn btn-secondary">
+        Clear Viewports
+      </button>
+    </div>
+  </div>
+
+  <script src="https://js.arcgis.com/4.33/"></script>
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/SceneView",
+      "esri/layers/IntegratedMesh3DTilesLayer",
+      "esri/analysis/ViewshedAnalysis",
+      "esri/core/promiseUtils",
+      "esri/core/reactiveUtils",
+      "esri/Camera"
+    ], function(Map, SceneView, IntegratedMesh3DTilesLayer, ViewshedAnalysis, promiseUtils, reactiveUtils, Camera) {
+
+      const map = new Map({
+        basemap: "satellite",
+        ground: "world-elevation"
+      });
+
+      // MAIN SCENE VIEW - Fixed Starting Extent initialized instantly
+      const view = new SceneView({
+        container: "viewDiv",
+        map: map,
+        camera: {
+          position: {
+            longitude: 114.166, 
+            latitude: 22.285,  
+            z: 1100      
+          },
+          tilt: 65,      
+          heading: 345   
+        },
+        qualityProfile: "high"
+      });
+
+      // PREVIEW SCENE VIEW - The Picture-in-Picture Observer viewport
+      const previewView = new SceneView({
+        container: "previewDiv",
+        map: map, // Shares the same exact data context as the main map
+        ui: { components: [] }, // Disables Esri UI to keep it clean
+        qualityProfile: "low"   // Keep overhead light for the mini-map
+      });
+
+      // Load Hong Kong Mesh
+      const hkMeshLayer = new IntegratedMesh3DTilesLayer({
+        url: "https://data.map.gov.hk/api/3d-data/3dtiles/f2/tileset.json",
+        customParameters: { key: "ec19cc0a7c6c47f4a88768f5a53b6839" },
+        title: "Hong Kong 3D Integrated Mesh"
+      });
+      map.add(hkMeshLayer);
+
+      hkMeshLayer.load().then(() => {
+        renderUINotification(false, "Ready");
+      }).catch((err) => {
+        renderUINotification(false, "Mesh Load Error");
+      });
+
+      // Analysis Configuration
+      const viewshedAnalysis = new ViewshedAnalysis();
+      view.analyses.add(viewshedAnalysis);
+
+      const placeBtn = document.getElementById("placeBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const statusBadge = document.getElementById("statusBadge");
+      const statusText = document.getElementById("statusText");
+      const previewContainer = document.getElementById("previewContainer");
+
+      let activeAbortController = null;
+      let activeViewshedWatcher = null;
+
+      // Generates the perspective camera based on standard Viewshed geometry
+      function getCameraFromViewshed(viewshed) {
+        // Compute diagonal field-of-view angle for accurate camera clipping
+        const fov = Math.sqrt(Math.pow(viewshed.verticalFieldOfView, 2) + Math.pow(viewshed.horizontalFieldOfView, 2));
+        return new Camera({
+          position: viewshed.observer,
+          heading: viewshed.heading,
+          tilt: viewshed.tilt,
+          fov: fov
+        });
+      }
+
+      // Automatically sync the preview camera with the active Viewshed
+      reactiveUtils.watch(
+        () => viewshedAnalysis.viewsheds.length > 0 ? viewshedAnalysis.viewsheds.getItemAt(0) : null,
+        (viewshed) => {
+          
+          // Clear older nested watcher loops
+          if (activeViewshedWatcher) {
+            activeViewshedWatcher.remove();
+            activeViewshedWatcher = null;
+          }
+
+          if (viewshed) {
+            // Show the preview UI box
+            previewContainer.style.display = "flex";
+            
+            // Re-render preview map whenever the user drags or edits the cone params
+            activeViewshedWatcher = reactiveUtils.watch(
+              () => [viewshed.observer, viewshed.heading, viewshed.tilt, viewshed.horizontalFieldOfView, viewshed.verticalFieldOfView],
+              () => {
+                previewView.camera = getCameraFromViewshed(viewshed);
+              },
+              { initial: true } // Run once immediately to set the initial camera snap
+            );
+          } else {
+            // Hide preview when viewports are cleared
+            previewContainer.style.display = "none";
+          }
+        },
+        { initial: true }
+      );
+
+      // Handle Map Interaction Hooks
+      view.when(async () => {
+        const analysisView = await view.whenAnalysisView(viewshedAnalysis);
+
+        placeBtn.addEventListener("click", async () => {
+          if (activeAbortController) {
+            activeAbortController.abort();
+          }
+          activeAbortController = new AbortController();
+          const { signal } = activeAbortController;
+
+          renderUINotification(true, "Click on map to position observer...");
+
+          try {
+            await analysisView.place({ signal });
+            renderUINotification(false, "Ready");
+          } catch (error) {
+            if (!promiseUtils.isAbortError(error)) {
+              renderUINotification(false, "Error occurred");
+            } else {
+              renderUINotification(false, "Ready");
+            }
+          } finally {
+            activeAbortController = null;
+          }
+        });
+
+        clearBtn.addEventListener("click", () => {
+          if (activeAbortController) {
+            activeAbortController.abort();
+            activeAbortController = null;
+          }
+          viewshedAnalysis.viewsheds.removeAll();
+          renderUINotification(false, "Ready");
+        });
+      });
+
+      function renderUINotification(isActive, dialog) {
+        statusText.textContent = dialog;
+        if (isActive) {
+          statusBadge.classList.add("active");
+        } else {
+          statusBadge.classList.remove("active");
+        }
+      }
+    });
+  </script>
+</body>
+</html>
